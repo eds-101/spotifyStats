@@ -1,6 +1,8 @@
-import {UserProfile} from "../../types";
+import {FetchUserTopItemsParams, SpotifyTopArtistsTracksResponse, UserProfile} from "../../types";
 
 export const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID
+
+const accessToken = localStorage.getItem('access_token') || '';
 
 export const getProfileImage = (profile: UserProfile) => {
     if (profile.images[0]) {
@@ -10,16 +12,15 @@ export const getProfileImage = (profile: UserProfile) => {
     }
 }
 
-export const fetchUserProfile = async (authCode: string) => {
+export const fetchUserProfile = async () => {
     try {
-        const accessToken = await getAccessToken(clientId, authCode ?? '');
         return await fetchProfile(accessToken);
     } catch (error) {
-        console.error("Failed to load profile", error);
+        console.error("Failed to fetch profile", error);
     }
 }
 
-export async function redirectToAuthCodeFlow(clientId: string) {
+export async function redirectToAuthCodeFlow() {
     const verifier = generateCodeVerifier(128);
     const challenge = await generateCodeChallenge(verifier);
 
@@ -38,7 +39,7 @@ export async function redirectToAuthCodeFlow(clientId: string) {
 
 function generateCodeVerifier(length: number) {
     let text = '';
-    let possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
     for (let i = 0; i < length; i++) {
         text += possible.charAt(Math.floor(Math.random() * possible.length));
@@ -55,13 +56,13 @@ async function generateCodeChallenge(codeVerifier: string) {
         .replace(/=+$/, '');
 }
 
-export async function getAccessToken(clientId: string, code: string) {
+export async function getAccessToken(authCode: string) {
     const verifier = localStorage.getItem("verifier");
 
     const params = new URLSearchParams();
     params.append("client_id", clientId);
     params.append("grant_type", "authorization_code");
-    params.append("code", code);
+    params.append("code", authCode);
     params.append("redirect_uri", "http://localhost:8888/callback");
     params.append("code_verifier", verifier!);
 
@@ -72,15 +73,22 @@ export async function getAccessToken(clientId: string, code: string) {
     });
 
     const { access_token } = await result.json();
+    if (access_token) {
+        localStorage.setItem('access_token', access_token)
+    }
     return access_token;
 }
 
-export async function fetchProfile(token: string): Promise<any> {
+export async function fetchProfile(accessToken: string): Promise<UserProfile> {
     const result = await fetch("https://api.spotify.com/v1/me", {
-        method: "GET", headers: { Authorization: `Bearer ${token}` }
+        method: "GET", headers: { Authorization: `Bearer ${accessToken}` }
     });
 
-    return await result.json();
+    if(!result.ok) {
+        throw new Error("Failed to fetch profile");
+    }
+
+    return result.json();
 }
 
 function populateUI(profile: UserProfile) {
