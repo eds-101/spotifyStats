@@ -1,5 +1,7 @@
 import {FetchUserTopItemsParams, SpotifyTopArtistsTracksResponse, UserProfile} from "../../types";
+import {appScope, redirectUri, sessionCookie} from "../../constants.ts";
 
+const accessToken = document.cookie.split(";").find((row) => row.startsWith(`${sessionCookie}=`))?.split("=")[1];
 export const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID
 
 const accessToken = localStorage.getItem('access_token') || '';
@@ -14,7 +16,7 @@ export const getProfileImage = (profile: UserProfile) => {
 
 export const fetchUserProfile = async () => {
     try {
-        return await fetchProfile(accessToken);
+        return await fetchProfile();
     } catch (error) {
         console.error("Failed to fetch profile", error);
     }
@@ -29,8 +31,8 @@ export async function redirectToAuthCodeFlow() {
     const params = new URLSearchParams();
     params.append("client_id", clientId);
     params.append("response_type", "code");
-    params.append("redirect_uri", "http://localhost:8888/callback");
-    params.append("scope", "user-read-private user-read-email");
+    params.append("redirect_uri", redirectUri);
+    params.append("scope", appScope);
     params.append("code_challenge_method", "S256");
     params.append("code_challenge", challenge);
 
@@ -79,7 +81,7 @@ export async function getAccessToken(authCode: string) {
     return access_token;
 }
 
-export async function fetchProfile(accessToken: string): Promise<UserProfile> {
+export async function fetchProfile(): Promise<UserProfile> {
     const result = await fetch("https://api.spotify.com/v1/me", {
         method: "GET", headers: { Authorization: `Bearer ${accessToken}` }
     });

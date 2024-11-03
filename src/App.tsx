@@ -1,10 +1,13 @@
 import './App.css'
 import {useEffect, useState} from "react";
 import {
-    fetchUserProfile, getAccessToken, getProfileImage,
+    fetchUserProfile, fetchUserTopItems, getAccessToken, getProfileImage,
     redirectToAuthCodeFlow
 } from "./apis/spotify";
-import {UserProfile} from "./types";
+import {FetchUserTopItemsParams, SpotifyItem, UserProfile} from "./types";
+import {cookieMaxAge, fallbackImage, sessionCookie} from "./constants.ts";
+
+const accessToken = document.cookie.split(";").find((row) => row.startsWith(`${sessionCookie}=`))?.split("=")[1];
 
 function App() {
     const [profile, setProfile] = useState<UserProfile | null>(() => {
@@ -27,18 +30,23 @@ function App() {
     const authCode = params.get("code") || localStorage.getItem("authCode") || '';
 
     useEffect(() => {
-        if (!accessToken) {
-            try {
-            redirectToAuthCodeFlow();
-            getAccessToken(authCode).then((token) => {
-                if (token) {
-                localStorage.setItem("access_token", token);
+        const fetchAndStoreToken = async () => {
+            if (!authCode) {
+                await redirectToAuthCodeFlow();
+            } else {
+                try {
+                    const token = await getAccessToken(authCode);
+                    if (token) {
+                        document.cookie = `${sessionCookie}=${token}; max-age=${cookieMaxAge}; Secure;`;
+                    }
+                } catch (err) {
+                    console.error("Error fetching access token:", err);
                 }
-            })
             }
-            catch (e) {
-                console.error("Error fetching access token:", e);
-            }
+        }
+
+        if (!accessToken) {
+            fetchAndStoreToken();
         }
     }, [accessToken]);
 
