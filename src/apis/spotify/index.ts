@@ -4,8 +4,6 @@ import {appScope, redirectUri, sessionCookie} from "../../constants.ts";
 const accessToken = document.cookie.split(";").find((row) => row.startsWith(`${sessionCookie}=`))?.split("=")[1];
 export const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID
 
-const accessToken = localStorage.getItem('access_token') || '';
-
 export const getProfileImage = (profile: UserProfile) => {
     if (profile.images[0]) {
         const profileImage = new Image(200, 200);
@@ -93,6 +91,22 @@ export async function fetchProfile(): Promise<UserProfile> {
     return result.json();
 }
 
-function populateUI(profile: UserProfile) {
-    // TODO: Update UI with profile data
+export async function fetchUserTopItems({
+                                     type,
+                                     time_range = "medium_term",
+                                     limit
+                                 }: FetchUserTopItemsParams): Promise<SpotifyTopArtistsTracksResponse> {
+    const queryParams = new URLSearchParams({time_range, ...(limit && {limit: limit.toString()})}).toString();
+
+    const result = await fetch(`https://api.spotify.com/v1/me/top/${type}?${queryParams}`, {
+        method: "GET",
+        headers: {Authorization: `Bearer ${accessToken}`}
+    });
+
+    if(!result.ok) {
+        console.log(result);
+        throw new Error("Failed to fetch user top items");
+    }
+
+    return result.json();
 }
