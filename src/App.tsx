@@ -4,17 +4,13 @@ import {
     fetchUserProfile, fetchUserTopItems, getAccessToken, getProfileImage,
     redirectToAuthCodeFlow
 } from "./apis/spotify";
-import {FetchUserTopItemsParams, SpotifyItem, UserProfile} from "./types";
+import {FetchUserTopItemsParams, SpotifyItem} from "./types";
 import {cookieMaxAge, fallbackImage, sessionCookie} from "./constants.ts";
 
 const accessToken = document.cookie.split(";").find((row) => row.startsWith(`${sessionCookie}=`))?.split("=")[1];
 
 function App() {
-    const [profile, setProfile] = useState<UserProfile | null>(() => {
-        const storedProfile = localStorage.getItem("profile");
-        return storedProfile ? JSON.parse(storedProfile) : null;
-    });
-
+    const [failedFetch, setFailedFetch] = useState(false);
     const [profileImage, setProfileImage] = useState<HTMLImageElement | null>(() => {
         const storedImage = localStorage.getItem("profileImage");
         if (storedImage) {
@@ -24,7 +20,6 @@ function App() {
         }
         return null;
     });
-
     const [topArtists, setTopArtists] = useState<SpotifyItem[] | null>(() => {
         if (accessToken) {
             fetchUserTopItems({type: "artists", time_range: "medium_term", limit: 10}).then((response) => {
@@ -35,6 +30,7 @@ function App() {
         }
         return null;
     });
+    const [topTracks, setTopTracks] = useState<SpotifyItem[] | null>(null);
 
     const params = new URLSearchParams(window.location.search);
     const authCode = params.get("code");
@@ -45,22 +41,28 @@ function App() {
         default: true
     }, {queryParam: "long_term", label: "Long Term"}];
 
-    const handlePeriodChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const handlePeriodChange = async (event: React.ChangeEvent<HTMLSelectElement>, type: "artists" | "tracks") => {
         const period = event.target.value as FetchUserTopItemsParams["time_range"];
-        await fetchUserTopItems({type: "artists", time_range: period, limit: 10}).then((response) => {
-            setTopArtists(response.items);
+        await fetchUserTopItems({type, time_range: period, limit: 10}).then((response) => {
+            if (type === "artists") {
+                setTopArtists(response.items);
+            }
+            else {
+                setTopTracks(response.items);
+            }
         });
     }
 
     useEffect(() => {
         const fetchAndStoreToken = async () => {
-            if (!authCode) {
+            if (!authCode || failedFetch) {
                 await redirectToAuthCodeFlow();
             } else {
                 try {
                     const token = await getAccessToken(authCode);
                     if (token) {
                         document.cookie = `${sessionCookie}=${token}; max-age=${cookieMaxAge}; Secure;`;
+                        setFailedFetch(false)
                     }
                 } catch (err) {
                     console.error("Error fetching access token:", err);
@@ -70,49 +72,37 @@ function App() {
 
         if (!accessToken) {
             fetchAndStoreToken();
+        } else {
+            setFailedFetch(false);
         }
-    }, [accessToken]);
+    }, [accessToken, authCode, failedFetch]);
 
     useEffect(() => {
-        const fetchProfile = async () => {
-            try {
-                const userProfile = await fetchUserProfile();
-                console.log('userProfile', userProfile);
+        Promise.all(
+            [
+                fetchUserProfile(),
+                fetchUserTopItems({type: "artists", time_range: "medium_term", limit: 10}),
+                fetchUserTopItems({type: "tracks", time_range: "medium_term", limit: 10})
+            ]
+        ).then(
+            ([userProfile, topArtists, topTracks ]) => {
                 if (userProfile) {
-                    setProfile(userProfile);
-                    localStorage.setItem("profile", JSON.stringify(userProfile));
-                }
-            } catch (e) {
-                console.error("Error fetching profile:", e);
-            }
-        }
-
-        if (!profile) {
-            fetchProfile();
-        }
-    }, [profile]);
-
-    useEffect(() => {
-            const fetchProfileAssets = async () => {
-                if (profile) {
-                    try {
-                        const image = getProfileImage(profile);
-                        setProfileImage(image ?? null);
-                        if (image) {
-                            localStorage.setItem("profileImage", image.src);
-                        }
-                        const topArtists = await fetchUserTopItems({type: "artists", time_range: "medium_term", limit: 10});
-                        setTopArtists(topArtists.items);
-                    } catch
-                        (e) {
-                        console.error("Error fetching profile assets:", e);
+                    const image = getProfileImage(userProfile);
+                    setProfileImage(image ?? null);
+                    if (image) {
+                        localStorage.setItem("profileImage", image.src);
                     }
                 }
+                console.log('topTracks: ', topTracks);
+                setTopArtists(topArtists.items);
+                setTopTracks(topTracks.items);
             }
-
-            fetchProfileAssets();
-        }, [profile]
-    );
+        ).catch((e) => {
+                console.error("Error fetching profile and top artists:", e);
+                setFailedFetch(true)
+            }
+        )
+    }, [accessToken]);
 
     return (
         <>
@@ -124,7 +114,32 @@ function App() {
                 <p className="read-the-docs">
                     Top Artists - Time period:
                 </p>
-                <select id="periods" name="periods" onChange={handlePeriodChange}>
+                <select id="periods" name="periods" onChange={e => handlePeriodChange(e, "artists")}>
+                    {periods.map((period) => {
+                        return (
+                            <option key={period.queryParam} value={period.queryParam}
+                                    selected={period.default}>{period.label}</option>
+                        )
+                    })}
+                </select>
+                {topArtists && topArtists.map((artist, i) => {
+                    return (
+                        <div key={artist.id} className="card-item">
+                            <p>{i + 1}: {artist.name}</p>
+                            <img height="200px" width="200px" src={artist.images?.[0]?.url || fallbackImage}
+                                 onError={(event) => {
+                                     console.log("Image failed to load, using fallback");
+                                     event.currentTarget.src = fallbackImage
+                                 }} alt={artist.name}/>
+                        </div>
+                    )
+                })}
+            </div>
+            <div className="card">
+                <p className="read-the-docs">
+                    Top Tracks:
+                </p>
+                <select id="periodsTracks" name="periodsTracks" onChange={e => handlePeriodChange(e, "tracks")}>
                     {periods.map((period) => {
                         return (
                             <option key={period.queryParam} value={period.queryParam}
@@ -134,14 +149,15 @@ function App() {
                 </select>
             </div>
             <div className="card">
-                {topArtists && topArtists.map((artist, i) => {
+                {topTracks && topTracks.map((track, i) => {
                     return (
-                        <div key={artist.id} className="card-item">
-                            <p>{i + 1}: {artist.name}</p>
-                            <img height="200px" width="200px" src={artist.images?.[0]?.url || fallbackImage} onError={(event) => {
-                                console.log("Image failed to load, using fallback");
-                                event.currentTarget.src = fallbackImage
-                            }} alt={artist.name}/>
+                        <div key={track.id} className="card-item">
+                            <p>{i + 1}: {track.name}</p>
+                            <img height="200px" width="200px" src={track.album?.images?.[0]?.url || fallbackImage}
+                                 onError={(event) => {
+                                     console.log("Image failed to load, using fallback");
+                                     event.currentTarget.src = fallbackImage
+                                 }} alt={track.name}/>
                         </div>
                     )
                 })}
