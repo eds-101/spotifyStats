@@ -1,7 +1,7 @@
 import './App.css'
 import React, {useEffect, useState} from "react";
 import {
-    fetchUserProfile, fetchUserTopItems, getAccessToken, getProfileImage,
+    fetchUserProfile, fetchUserTopItems, getAccessToken, getProfileImage, handleUnauthError,
     redirectToAuthCodeFlow
 } from "./apis/spotify";
 import {FetchUserTopItemsParams, SpotifyItem} from "./types";
@@ -23,9 +23,7 @@ function App() {
     const [topArtists, setTopArtists] = useState<SpotifyItem[] | null>(() => {
         if (accessToken) {
             fetchUserTopItems({type: "artists", time_range: "medium_term", limit: 10}).then((response) => {
-                console.log("top artists state set");
-                console.log(response.items);
-                return response.items;
+                return response;
             });
         }
         return null;
@@ -43,14 +41,14 @@ function App() {
 
     const handlePeriodChange = async (event: React.ChangeEvent<HTMLSelectElement>, type: "artists" | "tracks") => {
         const period = event.target.value as FetchUserTopItemsParams["time_range"];
-        await fetchUserTopItems({type, time_range: period, limit: 10}).then((response) => {
+        const userTopItems = await fetchUserTopItems({type, time_range: period, limit: 10});
+        if (userTopItems) {
             if (type === "artists") {
-                setTopArtists(response.items);
+                setTopArtists(userTopItems);
+            } else {
+                setTopTracks(userTopItems);
             }
-            else {
-                setTopTracks(response.items);
-            }
-        });
+        }
     }
 
     useEffect(() => {
@@ -93,13 +91,16 @@ function App() {
                         localStorage.setItem("profileImage", image.src);
                     }
                 }
-                console.log('topTracks: ', topTracks);
-                setTopArtists(topArtists.items);
-                setTopTracks(topTracks.items);
+                setTopArtists(topArtists);
+                setTopTracks(topTracks);
+                setFailedFetch(false);
             }
-        ).catch((e) => {
+        ).catch(async (e) => {
+                if (e.message === "Unauthorized") {
+                    await handleUnauthError();
+                }
                 console.error("Error fetching profile and top artists:", e);
-                setFailedFetch(true)
+                setFailedFetch(true);
             }
         )
     }, [accessToken]);

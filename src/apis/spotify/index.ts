@@ -1,5 +1,10 @@
-import {FetchUserTopItemsParams, SpotifyTopArtistsTracksResponse, UserProfile} from "../../types";
-import {appScope, redirectUri, sessionCookie} from "../../constants.ts";
+import {
+    FetchUserTopItemsParams,
+    SpotifyItem,
+    SpotifyTopArtistsTracksResponse,
+    UserProfile
+} from "../../types";
+import {appScope, cookieMaxAge, redirectUri, sessionCookie} from "../../constants.ts";
 
 const accessToken = document.cookie.split(";").find((row) => row.startsWith(`${sessionCookie}=`))?.split("=")[1];
 export const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID
@@ -16,7 +21,14 @@ export const fetchUserProfile = async () => {
     try {
         return await fetchProfile();
     } catch (error) {
-        console.error("Failed to fetch profile", error);
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-expect-error
+        if (error.message === "Unauthorized") {
+            await handleUnauthError()
+        } else {
+            console.error("Fetch error:", error);
+            throw error;
+        }
     }
 }
 
@@ -68,34 +80,62 @@ export async function getAccessToken(authCode: string) {
 
     const result = await fetch("https://accounts.spotify.com/api/token", {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {"Content-Type": "application/x-www-form-urlencoded"},
         body: params
     });
 
-    const { access_token } = await result.json();
+    const {access_token} = await result.json();
     if (access_token) {
         localStorage.setItem('access_token', access_token)
     }
     return access_token;
 }
 
+export const getRefreshToken = async () => {
+    const refreshToken = localStorage.getItem('refresh_token');
+    const url = "https://accounts.spotify.com/api/token";
+
+    const payload = {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: `grant_type=refresh_token&refresh_token=${refreshToken}&client_id=${clientId}`,
+    }
+    const body = await fetch(url, payload);
+    const response = await body.json();
+    if (response.accessToken) {
+        document.cookie = `${sessionCookie}=${response.accessToken}; max-age=${cookieMaxAge}; Secure;`;
+    }
+    if (response.refreshToken) {
+        localStorage.setItem('refresh_token', response.refreshToken);
+    }
+}
+
 export async function fetchProfile(): Promise<UserProfile> {
     const result = await fetch("https://api.spotify.com/v1/me", {
-        method: "GET", headers: { Authorization: `Bearer ${accessToken}` }
+        method: "GET", headers: {Authorization: `Bearer ${accessToken}`}
     });
 
-    if(!result.ok) {
-        throw new Error("Failed to fetch profile");
+    if (!result.ok) {
+        if (result.status === 401) {
+            // Handle unauthorized error specifically
+            alert("Failed to fetch profile: Session expired, please click OK to login.");
+            throw new Error("Unauthorized");
+        } else {
+            console.error(`Fetch failed with status: ${result.status}`);
+            throw new Error(`HTTP error! Status: ${result.status}`);
+        }
     }
 
     return result.json();
 }
 
 export async function fetchUserTopItems({
-                                     type,
-                                     time_range = "medium_term",
-                                     limit
-                                 }: FetchUserTopItemsParams): Promise<SpotifyTopArtistsTracksResponse> {
+                                            type,
+                                            time_range = "medium_term",
+                                            limit
+                                        }: FetchUserTopItemsParams): Promise<SpotifyItem[] | null> {
     const queryParams = new URLSearchParams({time_range, ...(limit && {limit: limit.toString()})}).toString();
 
     const result = await fetch(`https://api.spotify.com/v1/me/top/${type}?${queryParams}`, {
@@ -103,10 +143,24 @@ export async function fetchUserTopItems({
         headers: {Authorization: `Bearer ${accessToken}`}
     });
 
-    if(!result.ok) {
-        console.log(result);
-        throw new Error("Failed to fetch user top items");
+    if (!result.ok) {
+        if (result.status === 401) {
+            throw new Error("Unauthorized");
+        } else {
+            console.error(`Fetch failed with status: ${result.status}`);
+            throw new Error(`HTTP error! Status: ${result.status}`);
+        }
     }
 
-    return result.json();
+    const data: SpotifyTopArtistsTracksResponse = await result.json();
+    return data.items;
+}
+
+export const handleUnauthError = async () => {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (!refreshToken) {
+        console.warn("No refresh token found, redirecting to login page.");
+        await redirectToAuthCodeFlow();
+    }
+    await getRefreshToken();
 }
