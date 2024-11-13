@@ -2,40 +2,20 @@ import {
     FetchUserTopItemsParams,
     SpotifyItem,
     SpotifyTopArtistsTracksResponse,
-    UserProfile
+    SpotifyUserProfile
 } from "../../types";
-import {appScope, cookieMaxAge, redirectUri, sessionCookie} from "../../constants.ts";
+import {appScope, redirectUri, sessionCookie} from "../../constants.ts";
 
 const accessToken = document.cookie.split(";").find((row) => row.startsWith(`${sessionCookie}=`))?.split("=")[1];
 export const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID
 
-export const getProfileImage = (profile: UserProfile) => {
-    if (profile.images[0]) {
-        const profileImage = new Image(200, 200);
-        profileImage.src = profile.images[0].url;
-        return profileImage;
-    }
-}
-
 export const fetchUserProfile = async () => {
-    try {
-        return await fetchProfile();
-    } catch (error) {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-expect-error
-        if (error.message === "Unauthorized") {
-            await handleUnauthError()
-        } else {
-            console.error("Fetch error:", error);
-            throw error;
-        }
-    }
+    return await fetchProfile();
 }
 
 export async function redirectToAuthCodeFlow() {
     const verifier = generateCodeVerifier(128);
     const challenge = await generateCodeChallenge(verifier);
-
     localStorage.setItem("verifier", verifier);
 
     const params = new URLSearchParams();
@@ -75,7 +55,7 @@ export async function getAccessToken(authCode: string) {
     params.append("client_id", clientId);
     params.append("grant_type", "authorization_code");
     params.append("code", authCode);
-    params.append("redirect_uri", "http://localhost:8888/callback");
+    params.append("redirect_uri", redirectUri);
     params.append("code_verifier", verifier!);
 
     const result = await fetch("https://accounts.spotify.com/api/token", {
@@ -83,16 +63,13 @@ export async function getAccessToken(authCode: string) {
         headers: {"Content-Type": "application/x-www-form-urlencoded"},
         body: params
     });
-
-    const {access_token} = await result.json();
-    if (access_token) {
-        localStorage.setItem('access_token', access_token)
-    }
-    return access_token;
+    const results = await result.json();
+    console.log(results);
+    const {access_token, refresh_token} = results;
+    return {access_token, refresh_token};
 }
 
-export const getRefreshToken = async () => {
-    const refreshToken = localStorage.getItem('refresh_token');
+export const refreshAccessToken = async (refreshToken: string | null) => {
     const url = "https://accounts.spotify.com/api/token";
 
     const payload = {
@@ -104,15 +81,12 @@ export const getRefreshToken = async () => {
     }
     const body = await fetch(url, payload);
     const response = await body.json();
-    if (response.accessToken) {
-        document.cookie = `${sessionCookie}=${response.accessToken}; max-age=${cookieMaxAge}; Secure;`;
-    }
-    if (response.refreshToken) {
-        localStorage.setItem('refresh_token', response.refreshToken);
-    }
+    console.log('response: ', response);
+    return {accessToken: response.access_token, refreshToken: response.refresh_token};
+
 }
 
-export async function fetchProfile(): Promise<UserProfile> {
+export async function fetchProfile(): Promise<SpotifyUserProfile> {
     const result = await fetch("https://api.spotify.com/v1/me", {
         method: "GET", headers: {Authorization: `Bearer ${accessToken}`}
     });
@@ -120,7 +94,6 @@ export async function fetchProfile(): Promise<UserProfile> {
     if (!result.ok) {
         if (result.status === 401) {
             // Handle unauthorized error specifically
-            alert("Failed to fetch profile: Session expired, please click OK to login.");
             throw new Error("Unauthorized");
         } else {
             console.error(`Fetch failed with status: ${result.status}`);
@@ -154,13 +127,4 @@ export async function fetchUserTopItems({
 
     const data: SpotifyTopArtistsTracksResponse = await result.json();
     return data.items;
-}
-
-export const handleUnauthError = async () => {
-    const refreshToken = localStorage.getItem('refresh_token');
-    if (!refreshToken) {
-        console.warn("No refresh token found, redirecting to login page.");
-        await redirectToAuthCodeFlow();
-    }
-    await getRefreshToken();
 }

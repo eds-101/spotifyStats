@@ -1,4 +1,4 @@
-export interface UserProfile {
+export interface SpotifyUserProfile {
     country: string;
     display_name: string;
     email: string;
@@ -41,6 +41,7 @@ export interface SpotifyItem {
     external_urls: {
         spotify: string;
     };
+    images?: SpotifyImage[];
     // For tracks only
     album?: SpotifyAlbum;
     artists?: SpotifyArtist[];
@@ -48,7 +49,6 @@ export interface SpotifyItem {
     explicit?: boolean;
     // For artists only
     genres?: string[];
-    images?: SpotifyImage[];
 }
 
 export interface SpotifyAlbum {
@@ -73,3 +73,8 @@ export interface SpotifyImage {
     height: number;
     width: number;
 }
+
+interface SpotifyTopArtistsTracksResponse {
+    items: SpotifyItem[];
+}
+
